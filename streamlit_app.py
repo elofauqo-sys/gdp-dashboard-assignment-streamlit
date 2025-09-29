@@ -1,151 +1,110 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
 
-# Set the title and favicon that appear in the Browser's tab bar.
+# --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title="Employee Survey Analysis",
+    page_icon="👩‍💼",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
+# --- DATA LOADING ---
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def load_data():
+    df = pd.read_csv("data/employee_survey.csv")
+    return df
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+df = load_data()
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# --- APP TITLE AND DESCRIPTION ---
+st.title("👩‍💼 Employee Survey Data Analysis")
+st.markdown("""
+Dashboard ini melakukan exploratory data analysis (EDA) sederhana pada data survey karyawan.
+Gunakan filter di sidebar untuk mengeksplorasi data.
+""")
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+# --- SIDEBAR FOR FILTERS ---
+st.sidebar.header("Filter Data Karyawan")
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+# Filter Departemen
+departments = st.sidebar.multiselect(
+    "Pilih Departemen",
+    options=df["dept"].unique()
+)
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# Filter Gender
+genders = st.sidebar.multiselect(
+    "Pilih Gender",
+    options=df["gender"].unique()
+)
 
-    return gdp_df
+# Filter Job Role
+job_roles = st.sidebar.multiselect(
+    "Pilih Job Level",
+    options=df["job_level"].unique()
+)
 
-gdp_df = get_gdp_data()
+# Filter Usia
+age_min, age_max = int(df["age"].min()), int(df["age"].max())
+age_slider = st.sidebar.slider(
+    "Pilih Rentang Usia",
+    min_value=age_min,
+    max_value=age_max,
+    value=(age_min, age_max)
+)
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+# --- FILTERING DATA ---
+df_selection = df.copy()
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+if departments:
+    df_selection = df_selection[df_selection["dept"].isin(departments)]
+if genders:
+    df_selection = df_selection[df_selection["gender"].isin(genders)]
+if job_roles:
+    df_selection = df_selection[df_selection["job_level"].isin(job_roles)]
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
+df_selection = df_selection[
+    (df_selection["age"] >= age_slider[0]) &
+    (df_selection["age"] <= age_slider[1])
 ]
 
-st.header('GDP over time', divider='gray')
+if df_selection.empty:
+    st.warning("Tidak ada data untuk filter yang dipilih. Silakan ubah filter.")
+    st.stop()
 
-''
+# --- MAIN PAGE CONTENT ---
+st.subheader("📊 Key Metrics")
 
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label="Total Karyawan", value=df_selection.shape[0])
+with col2:
+    avg_age = round(df_selection["age"].mean(), 1)
+    st.metric(label="Rata-rata Usia", value=f"{avg_age} tahun")
+with col3:
+    if "MonthlyIncome" in df_selection.columns:
+        avg_income = round(df_selection["MonthlyIncome"].mean(), 0)
+        st.metric(label="Rata-rata Income", value=f"Rp {avg_income:,.0f}")
 
-''
-''
+st.markdown("---")
 
+# --- VISUALISASI ---
+st.subheader("📈 Visualisasi")
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+viz_col1, viz_col2 = st.columns(2)
 
-st.header(f'GDP in {to_year}', divider='gray')
+with viz_col1:
+    st.subheader("Distribusi Usia")
+    st.bar_chart(df_selection["age"].value_counts().sort_index())
 
-''
+with viz_col2:
+    if "WorkLifeBalance" in df_selection.columns:
+        st.subheader("Rata-rata Work Life Balance per Departemen")
+        avg_wlb = df_selection.groupby("dept")["WorkLifeBalance"].mean().round(1)
+        st.bar_chart(avg_wlb)
 
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# --- DISPLAY RAW DATA ---
+with st.expander("Lihat Data Mentah"):
+    st.dataframe(df_selection)
+    st.markdown(f"**Dimensi Data:** {df_selection.shape[0]} baris, {df_selection.shape[1]} kolom")
